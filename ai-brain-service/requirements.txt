@@ -1,0 +1,11 @@
+flask
+python-dotenv
+sentence-transformers
+transformers==4.36.2
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+scikit-learn
+requests
+pymongo
+redis==5.0.1
+numpy<2
