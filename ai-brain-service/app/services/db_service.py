@@ -18,14 +18,14 @@ def save_user_click(user_id, persona):
     )
 
 
-def record_feed_fetch(user_id: str, persona: str, article_count: int):
-    """Increment regulation counters for real-time stats."""
+def record_feed_fetch(user_id: str, persona: str, article_count: int, audience_profile: str | None = None):
     users_col.update_one(
         {"user_id": user_id},
         {
             "$inc": {"feed_fetches": 1, "articles_served": article_count},
             "$set": {
                 "last_persona": persona,
+                "last_audience_profile": audience_profile,
                 "last_fetch_at": _now(),
             },
         },
@@ -40,12 +40,20 @@ def get_user_persona(user_id):
 
 def get_user_stats(user_id: str) -> dict:
     doc = users_col.find_one({"user_id": user_id}) or {}
+    article_ids = doc.get("recent_article_ids") or []
     return {
         "feed_fetches": int(doc.get("feed_fetches", 0)),
         "articles_served": int(doc.get("articles_served", 0)),
         "last_fetch_at": doc.get("last_fetch_at"),
         "last_persona": doc.get("last_persona"),
+        "last_audience_profile": doc.get("last_audience_profile"),
         "last_persona_scores": doc.get("last_persona_scores"),
+        "total_interactions": int(doc.get("total_interactions", 0)),
+        "source_clicks": int(doc.get("source_clicks", 0)),
+        "deep_reads": int(doc.get("deep_reads", 0)),
+        "unique_articles": len(article_ids),
+        "last_engagement_at": doc.get("last_engagement_at"),
+        "recent_article_ids": article_ids[-40:],
     }
 
 
@@ -58,13 +66,32 @@ def save_last_persona_scores(user_id: str, persona_scores: dict):
 
 
 def record_article_click(user_id: str, payload: dict):
-    """Store a user interaction with an article (source link, deep read, etc.)."""
+    interaction = payload.get("interaction", "unknown")
+    article_id = payload.get("article_id")
     doc = {
         "user_id": user_id,
         "clicked_at": _now(),
         **{k: v for k, v in payload.items() if v is not None},
     }
     clicks_col.insert_one(doc)
+
+    inc = {"total_interactions": 1}
+    if interaction == "source":
+        inc["source_clicks"] = 1
+    if interaction in {"deep_read", "deep_read_view"}:
+        inc["deep_reads"] = 1
+
+    update = {
+        "$inc": inc,
+        "$set": {
+            "last_engagement_at": _now(),
+            "updated_at": _now(),
+        },
+    }
+    if article_id:
+        update["$addToSet"] = {"recent_article_ids": article_id}
+
+    users_col.update_one({"user_id": user_id}, update, upsert=True)
 
 
 def list_article_clicks(user_id: str, limit: int = 50):

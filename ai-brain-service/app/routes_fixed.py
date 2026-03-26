@@ -32,6 +32,7 @@ def register_routes(app):
             raise APIException("Invalid JSON body", 400)
 
         persona = data.get("current_persona", "student").lower()
+        audience_profile = data.get("audience_profile")
         click_history = data.get("click_history", [])
         user_id = data.get("user_id", "demo_user")
 
@@ -59,7 +60,10 @@ def register_routes(app):
             articles=articles,
             current_persona=persona,
             click_history=click_history,
-            user_id=user_id
+            user_id=user_id,
+            audience_profile=audience_profile,
+            query=query,
+            refresh_cycle=page,
         )
 
         if result.get("status") == "error":
@@ -160,6 +164,7 @@ def register_routes(app):
 
         article_text = data.get("article_text")
         persona = data.get("current_persona", "student").lower()
+        audience_profile = data.get("audience_profile")
         click_history = data.get("click_history", [])
         user_id = data.get("user_id", "demo_user")
 
@@ -176,7 +181,8 @@ def register_routes(app):
             text=article_text,
             persona=persona,
             click_history=click_history,
-            user_id=user_id
+            user_id=user_id,
+            audience_profile=audience_profile,
         )
         return jsonify(result), 200
 

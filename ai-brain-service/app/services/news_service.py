@@ -2,6 +2,7 @@ import os
 import requests
 import json
 from typing import List, Dict, Any
+from app.fast_articles import get_fast_articles
 # Redis optional - fallback no-cache for reliability
 # from .redis_client import get_cache, set_cache, cache_articles
 
@@ -11,7 +12,7 @@ if not NEWS_API_KEY:
 BASE_URL = "https://newsapi.org/v2/everything"
 
 
-def fetch_articles(query="economy", page_size=20, page=1):  # Increased page_size for perf
+def fetch_articles(query="economy", page_size=30, page=1):
     cache_key = f"news:{query}:{page_size}:{page}"
     # Cache disabled for startup - use static fast_articles
     params = {
@@ -23,12 +24,14 @@ def fetch_articles(query="economy", page_size=20, page=1):  # Increased page_siz
         "page": max(1, int(page)),
     }
     try:
-        response = requests.get(BASE_URL, params=params, timeout=5, headers={'User-Agent': 'NewsAI/1.0'})
+        response = requests.get(BASE_URL, params=params, timeout=8, headers={'User-Agent': 'NewsAI/1.0'})
         if response.status_code != 200:
-            return []
+            return get_fast_articles(num_articles=page_size, query=query, page=page)
         raw = response.json().get("articles", [])
     except:
         raw = []
+    if not raw:
+        return get_fast_articles(num_articles=page_size, query=query, page=page)
     out: List[Dict[str, Any]] = []
     for a in raw:
         title = (a.get("title") or "").strip()
@@ -49,4 +52,4 @@ def fetch_articles(query="economy", page_size=20, page=1):  # Increased page_siz
                 "source": (a.get("source") or {}).get("name", ""),
             }
         )
-    return out[:page_size]
+    return out[:page_size] or get_fast_articles(num_articles=page_size, query=query, page=page)
