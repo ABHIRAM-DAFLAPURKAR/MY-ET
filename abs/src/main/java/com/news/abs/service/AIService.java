@@ -33,6 +33,10 @@ public class AIService {
         return restTemplate.postForObject(aiBaseUrl + "/api/v1/history/record", body, Object.class);
     }
 
+    public Object trackBehavior(Map<String, Object> body) {
+        return restTemplate.postForObject(aiBaseUrl + "/api/v1/track", body, Object.class);
+    }
+
     public Object getHistory(String userId, int limit) {
         String uid = (userId == null || userId.isBlank()) ? "demo" : userId;
         URI uri = UriComponentsBuilder.fromUriString(aiBaseUrl + "/api/v1/history")

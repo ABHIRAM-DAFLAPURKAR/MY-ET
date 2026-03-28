@@ -1,12 +1,13 @@
 # PERFECT CLEAN ROUTES - No indentation issues
 from flask import request, jsonify
-from app.services.ai_service import process_request, process_articles
+from app.services.ai_service import process_request, run_personalization_pipeline
 from app.exceptions import APIException
 from app.services.news_service import fetch_articles
 from app.services.db_service import (
     get_user_stats,
     record_article_click,
     list_article_clicks,
+    record_user_activity,
 )
 import re
 
@@ -31,10 +32,12 @@ def register_routes(app):
         if not data:
             raise APIException("Invalid JSON body", 400)
 
-        persona = data.get("current_persona", "student").lower()
+        provided_persona = data.get("current_persona")
+        persona = (provided_persona or "").lower().strip()
         audience_profile = data.get("audience_profile")
         click_history = data.get("click_history", [])
         user_id = data.get("user_id", "demo_user")
+        intent_mode = data.get("intent_mode")
 
         query = data.get("query", "business technology startups investing")
         try:
@@ -43,7 +46,7 @@ def register_routes(app):
             page = 1
         page = max(1, min(page, 50))
 
-        if persona not in VALID_PERSONAS:
+        if persona and persona not in VALID_PERSONAS:
             raise APIException(
                 f"Invalid persona. Allowed: {VALID_PERSONAS}", 400
             )
@@ -51,19 +54,15 @@ def register_routes(app):
         if not isinstance(click_history, list):
             raise APIException("click_history must be list", 400)
 
-        articles = fetch_articles(query=query, page_size=18, page=page)
-
-        if not articles:
-            raise APIException("No articles fetched from NewsAPI", 500)
-
-        result = process_articles(
-            articles=articles,
-            current_persona=persona,
+        result = run_personalization_pipeline(
             click_history=click_history,
             user_id=user_id,
+            current_persona=persona,
             audience_profile=audience_profile,
             query=query,
             refresh_cycle=page,
+            intent_mode=intent_mode,
+            page_size=18,
         )
 
         if result.get("status") == "error":
@@ -125,6 +124,27 @@ def register_routes(app):
                 "interaction": data.get("interaction", "unknown"),
                 "relevance_percent": data.get("relevance_percent"),
                 "persona_applied": data.get("persona_applied"),
+                "topic": data.get("topic"),
+                "read_time": data.get("read_time"),
+            },
+        )
+        return jsonify({"status": "ok"}), 200
+
+    @app.route('/api/v1/track', methods=['POST'])
+    def track_behavior():
+        data = request.get_json() or {}
+        user_id = data.get("user_id")
+        if not user_id:
+            raise APIException("user_id required", 400)
+        record_user_activity(
+            user_id,
+            {
+                "article_title": data.get("article_title"),
+                "topic": data.get("topic"),
+                "read_time": data.get("read_time", 0),
+                "clicked": bool(data.get("clicked", False)),
+                "interaction": data.get("interaction", "view"),
+                "url": data.get("url"),
             },
         )
         return jsonify({"status": "ok"}), 200

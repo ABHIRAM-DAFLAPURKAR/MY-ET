@@ -74,6 +74,11 @@ public class NewsController {
         return aiService.recordHistory(body);
     }
 
+    @PostMapping("/track")
+    public Object trackBehavior(@RequestBody Map<String, Object> body) {
+        return aiService.trackBehavior(body);
+    }
+
     @GetMapping("/history")
     public Object getHistory(
             @RequestParam String user_id,

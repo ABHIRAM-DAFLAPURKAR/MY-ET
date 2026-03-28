@@ -46,13 +46,25 @@ class LightweightMatcher:
 class LightweightSummarizer:
     def __call__(self, text, max_length=90, min_length=30, do_sample=False, truncation=True):
         source = str(text or "")
+        prompt = source.split(": ", 1)[0] if ": " in source else ""
         payload = source.split(": ", 1)[1] if ": " in source else source
+
+        prefix = ""
+        if "CFO" in prompt:
+            prefix = "[CFO Analytics] "
+        elif "young investor" in prompt:
+            prefix = "[Investor Guide] "
+        elif "founder" in prompt:
+            prefix = "[Founder Pulse] "
+        elif "student" in prompt:
+            prefix = "[Student Explainer] "
+
         words = payload.split()
         if not words:
             summary = ""
         else:
             max_words = max(min_length, min(max_length, 60))
-            summary = " ".join(words[:max_words])
+            summary = prefix + " ".join(words[:max_words])
         return [{"generated_text": summary}]
 
 

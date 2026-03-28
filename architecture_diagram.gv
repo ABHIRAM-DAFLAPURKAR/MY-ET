@@ -1,0 +1,19 @@
+// News AI System Architecture
+digraph {
+	UI [label="Next.js Frontend
+(Port 3000)" fillcolor=lightblue shape=box style=filled]
+	Backend [label="Spring Boot Backend
+(Port 8080)" fillcolor=lightgreen shape=box style=filled]
+	AI [label="AI Brain Service
+(FastAPI / LangGraph)
+(Port 5005)" fillcolor=orange shape=box style=filled]
+	Mongo [label="MongoDB
+(NewsDB)" fillcolor=lightgrey shape=cylinder style=filled]
+	Redis [label="Redis Cache" fillcolor=lightcoral shape=cylinder style=filled]
+	UI -> Backend [label=" REST API"]
+	Backend -> AI [label=" AI Processing Request"]
+	AI -> Redis [label=" Cache / Memory"]
+	Backend -> Redis [label=" Session / Cache"]
+	AI -> Mongo [label=" Fetch/Store context"]
+	Backend -> Mongo [label=" Read/Write Data"]
+}

@@ -9,10 +9,10 @@ services:
       - mongodb_data:/data/db
     healthcheck:
       test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand(\"ping\")' --quiet || exit 1"]
-      interval: 10s
-      timeout: 5s
+      interval: 5s
+      timeout: 3s
       retries: 5
-      start_period: 20s
+      start_period: 5s
     networks:
       - news-network
 
@@ -27,8 +27,8 @@ services:
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
+      interval: 5s
+      timeout: 3s
       retries: 3
     networks:
       - news-network
@@ -44,19 +44,18 @@ services:
       - NEWS_API_KEY=${NEWS_API_KEY}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - USE_TRANSFORMER_MODELS=true
     volumes:
       - ai_models:/app/models_cache  # Persist ML models
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5005/health || exit 1"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 80s
+      start_period: 10s
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - mongodb
+      - redis
     networks:
       - news-network
 
@@ -74,17 +73,14 @@ services:
       - NEWS_API_KEY=${NEWS_API_KEY}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/news/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 20
-      start_period: 120s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     depends_on:
-      ai-brain:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - ai-brain
+      - mongodb
+      - redis
     networks:
       - news-network
     # Note: Run builds serially: docker compose build --parallel=1 (uses build: ./abs)
@@ -99,8 +95,7 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8081
       - BACKEND_INTERNAL_URL=http://spring-backend:8080
     depends_on:
-      spring-backend:
-        condition: service_healthy
+      - spring-backend
     networks:
       - news-network
 
