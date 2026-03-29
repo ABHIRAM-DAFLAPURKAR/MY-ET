@@ -92,12 +92,17 @@ Beyond time, MyET accelerates the most critical business functions.
     *   **Investors**: Decision bias reduced by filtering personalized noise from true alpha signals.
 
 ---
-
+⚙️ Setup & Installation
+🧩 Prerequisites
+Docker & Docker Compose
+Node.js (optional)
+Python 3.9+
+---
 
 📥 1. Clone Repository
 ```bash
 git clone https://github.com/ABHIRAM-DAFLAPURKAR/MY-ET.git
-cd news-ai-service 
+cd MY-ET 
 ```
 🔑 2. Environment Variables
 
