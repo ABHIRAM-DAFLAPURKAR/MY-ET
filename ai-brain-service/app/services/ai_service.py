@@ -178,7 +178,7 @@ def transform_text(text, persona, audience_profile=None):
     profile = _profile_meta(audience_profile, persona)
     
     try:
-        result = get_summarizer()((profile["prompt"] or config["prefix"]) + (text or "")[:1600], max_length=config["max_len"], min_length=config["min_len"], do_sample=False, truncation=True)
+        result = get_summarizer()((profile["prompt"] or config["prefix"]) + (text or "")[:1000], max_length=config["max_len"], min_length=config["min_len"], do_sample=False, truncation=True)
         out = result[0].get("summary_text") or result[0].get("generated_text") or ""
         out = out.strip() or (text or "")[:280]
     except Exception as e:
@@ -501,19 +501,48 @@ def ranking_agent(state: NewsState):
         start = ((max(1, refresh_cycle) - 1) * 4) % len(candidate_pool)
         rotated = candidate_pool[start:] + candidate_pool[:start]
         top_slice = rotated[:12]
-        # Optimized: Parallelize Top 5 Transformations + Truncate Others
-        def process_item(item_idx):
-            item = top_slice[item_idx]
+        # Optimized: Batch Transformation for Top 2 Articles (Async for others)
+        sync_limit = 2
+        to_transform = []
+        for i in range(min(sync_limit, len(top_slice))):
+            item = top_slice[i]
             raw = item.get("_raw_text") or item.get("description") or ""
-            if item_idx < 3: # Reduced to top 3 for ultra-speed
-                item["transformed_text"] = transform_text(raw, current_persona, audience_profile)
+            cache_key = f"trans:{current_persona}:{audience_profile}:{hashlib.md5(raw.encode()).hexdigest()}"
+            
+            cached = None
+            try:
+                if r: cached = r.get(cache_key)
+            except: pass
+            
+            if cached:
+                item["transformed_text"] = cached.decode("utf-8")
             else:
-                item["transformed_text"] = raw[:280]
-            item.pop("_raw_text", None)
-            return item
+                to_transform.append((i, raw, cache_key))
+        
+        if to_transform:
+            try:
+                profile = _profile_meta(audience_profile, current_persona)
+                prompts = [profile["prompt"] + raw[:1000] for _, raw, _ in to_transform]
+                results = get_summarizer()(prompts, max_length=60, min_length=30, do_sample=False, truncation=True)
+                for idx, result in enumerate(results):
+                    original_idx, _, c_key = to_transform[idx]
+                    out = result.get("summary_text") or result.get("generated_text") or ""
+                    top_slice[original_idx]["transformed_text"] = out
+                    try:
+                        if r: r.setex(c_key, 3600, out)
+                    except: pass
+            except Exception as e:
+                logger.error(f"Batch transformation failed: {e}")
+                for original_idx, raw, _ in to_transform:
+                    top_slice[original_idx]["transformed_text"] = raw[:280]
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            top_slice = list(executor.map(process_item, range(len(top_slice))))
+        # Handle remaining top articles (3-12) with simple truncation or background
+        for i in range(sync_limit, len(top_slice)):
+            item = top_slice[i]
+            item["transformed_text"] = (item.get("_raw_text") or item.get("description") or "")[:280]
+
+        for item in top_slice:
+            item.pop("_raw_text", None)
     
     demo_text, demo_title = (top_slice[0].get("transformed_text"), top_slice[0].get("original_title")) if top_slice else (None, None)
     for item in ranked:
@@ -526,8 +555,8 @@ def ranking_agent(state: NewsState):
     dominant_persona = max(PERSONAS, key=lambda persona: batch_dist[persona])
     persona_demo = build_persona_demo(demo_title, demo_text) if top_slice and demo_text and demo_title else None
     
-    # Fire-and-forget background pre-caching for other personas
-    threading.Thread(target=_bg_precache_task, args=(top_slice[:3], current_persona, audience_profile)).start()
+    # Fire-and-forget background pre-caching for remaining top articles AND other personas
+    threading.Thread(target=_bg_precache_task, args=(top_slice[:5], current_persona, audience_profile)).start()
     
     logger.info("Ranking completed for %s with dominant feed persona %s", user_id, dominant_persona)
     return {"ranked_articles": ranked, "top_articles": top_slice, "persona_scores": persona_scores, "dominant_feed_persona": dominant_persona, "top_persona": suggested_persona, "persona_shift_detected": shift_detected, "confidence_score": confidence, "profile_label": profile["label"], "personalized_homepage_label": profile["label"], "generic_homepage_label": "Generic ET homepage", "persona_demo": persona_demo, "agent_pipeline": _append_pipeline_step(state, "Personalisation + Ranking Agent", f"Scored articles for {profile['label']} using persona fit, recency, impact, sentiment-aware weighting, and engagement signals, then ranked the top {len(top_slice)}.")}
@@ -648,7 +677,14 @@ PIPELINE_APP = _build_pipeline_app()
 def run_personalization_pipeline(user_id: str, current_persona: str, click_history: list[float], audience_profile: str | None = None, query: str = "business technology startups investing", refresh_cycle: int = 1, intent_mode: str | None = None, page_size: int = 18, articles: list[dict[str, Any]] | None = None):
     effective_persona = current_persona or detect_persona_from_behavior(user_id)["suggested_persona"]
     try:
-        result = PIPELINE_APP.invoke({"user_id": user_id, "current_persona": effective_persona, "audience_profile": audience_profile, "click_history": click_history, "query": query, "refresh_cycle": refresh_cycle, "page_size": page_size, "intent_mode": intent_mode, "articles": articles or [], "agent_pipeline": []})
+        # Hard timeout for the entire graph execution
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(PIPELINE_APP.invoke, {"user_id": user_id, "current_persona": effective_persona, "audience_profile": audience_profile, "click_history": click_history, "query": query, "refresh_cycle": refresh_cycle, "page_size": page_size, "intent_mode": intent_mode, "articles": articles or [], "agent_pipeline": []})
+            result = future.result(timeout=6.5) # Hard limit for demo stability
+    except concurrent.futures.TimeoutError:
+        logger.error("Pipeline timed out, using immediate safety fallback")
+        return _immediate_fallback(user_id, effective_persona, audience_profile, query, refresh_cycle, page_size, "pipeline_timeout")
     except Exception as exc:
         logger.exception("Pipeline failed for user %s: %s", user_id, exc)
         fallback_articles = [_normalize_article(article) for article in get_fast_articles(num_articles=min(page_size, 9), query=query, page=refresh_cycle)]
@@ -705,10 +741,66 @@ def run_personalization_pipeline(user_id: str, current_persona: str, click_histo
         }
     return {"status": "success", "persona_applied": effective_persona, "top_persona": result.get("top_persona", effective_persona), "dominant_feed_persona": result.get("dominant_feed_persona", effective_persona), "persona_shift_detected": bool(result.get("persona_shift_detected", False)), "confidence_score": float(result.get("confidence_score", 0.34)), "persona_scores": result.get("persona_scores"), "top_articles": result.get("top_articles") or [], "ranked_articles": result.get("ranked_articles") or [], "regulation_stats": result.get("regulation_stats") or {}, "audience_profile": audience_profile, "profile_label": result.get("profile_label"), "latest_feed_label": result.get("latest_feed_label"), "feed_generated_at": result.get("feed_generated_at"), "generic_homepage_label": result.get("generic_homepage_label", "Generic ET homepage"), "personalized_homepage_label": result.get("personalized_homepage_label"), "agent_pipeline": result.get("agent_pipeline") or [], "engagement_retuning": result.get("engagement_retuning"), "suggested_persona": result.get("behavior_hint", {}).get("suggested_persona", effective_persona), "behavior_persona_scores": result.get("behavior_hint", {}).get("persona_scores"), "persona_detection_reason": result.get("behavior_hint", {}).get("reason", f"Detected from pipeline behavior signals for {effective_persona}."), "intent_mode": intent_mode, "persona_demo": result.get("persona_demo"), "synthesis_summary": result.get("synthesis_summary", ""), "final_output": result.get("final_output") or {}, "explanation": result.get("explanation"), "impact_metrics": result.get("impact_metrics"), "model_routing": result.get("model_routing"), "fallback_used": bool(result.get("fallback_used", False)), "fallback_reason": result.get("fallback_reason")}
 
+def _immediate_fallback(user_id, effective_persona, audience_profile, query, refresh_cycle, page_size, reason):
+    fallback_articles = [_normalize_article(article) for article in get_fast_articles(num_articles=min(page_size, 9), query=query, page=refresh_cycle)]
+    safe_articles = [article for article in fallback_articles if article]
+    top_articles = [
+        {
+            "article_id": _stable_article_id(article.get("url") or "", article.get("title") or ""),
+            "original_title": article.get("title") or "Untitled",
+            "transformed_text": _simple_summary(article, effective_persona, audience_profile),
+            "best_persona": effective_persona,
+            "suggested_tag": effective_persona,
+            "persona_tags": [{"persona": p, "relevance_percent": 34 if p == effective_persona else 33, "relevance": 0.0} for p in PERSONAS],
+            "relevance_score": 0.34,
+            "relevance_percent": 34.0,
+            "persona_scores": {p: (0.34 if p == effective_persona else 0.33) for p in PERSONAS} | {"total_confidence": 0.34},
+            "url": article.get("url", ""),
+            "published_at": article.get("published_at", ""),
+            "source": article.get("source", ""),
+            "description": article.get("description", ""),
+            "signal_tags": ["current_events"],
+            "sentiment_tag": "neutral",
+            "content_format": _profile_meta(audience_profile, effective_persona)["format"],
+            "framing_style": _profile_meta(audience_profile, effective_persona)["framing"],
+            "why_for_user": "Immediate fallback activated to preserve system responsiveness.",
+            "refresh_reason": "latency_protection",
+        }
+        for article in safe_articles[:9]
+    ]
+    return {
+        "status": "success",
+        "persona_applied": effective_persona,
+        "top_persona": effective_persona,
+        "dominant_feed_persona": effective_persona,
+        "persona_shift_detected": False,
+        "confidence_score": 0.34,
+        "persona_scores": {p: (0.34 if p == effective_persona else 0.33) for p in PERSONAS} | {"total_confidence": 0.34},
+        "top_articles": top_articles,
+        "ranked_articles": top_articles,
+        "regulation_stats": {},
+        "audience_profile": audience_profile,
+        "profile_label": _profile_meta(audience_profile, effective_persona)["label"],
+        "latest_feed_label": f"Speed-optimized {effective_persona} feed",
+        "feed_generated_at": datetime.now(timezone.utc).isoformat(),
+        "generic_homepage_label": "Generic ET homepage",
+        "personalized_homepage_label": "Speed-optimized feed",
+        "agent_pipeline": [{"step": "Latency Protection", "detail": "The system prioritize speed over depth due to high processing load."}],
+        "engagement_retuning": {},
+        "behavior_hint": {},
+        "persona_demo": None,
+        "synthesis_summary": "Top priorities for you in the latest markers.",
+        "final_output": {"summary": "Top priorities", "articles": top_articles},
+        "fallback_used": True,
+        "fallback_reason": reason,
+        "explanation": "To ensure immediate results, we've provided a curated feed without deep AI synthesis.",
+        "impact_metrics": {},
+        "model_routing": {"understanding": "fast", "synthesis": "none"}
+    }
+
 
 def process_articles(articles, current_persona, click_history, user_id="demo_user", audience_profile=None, query="business technology", refresh_cycle=1):
     return run_personalization_pipeline(user_id=user_id, current_persona=current_persona, click_history=click_history, audience_profile=audience_profile, query=query, refresh_cycle=refresh_cycle, articles=articles)
-
 
 def process_request(text, persona, click_history, user_id="demo_user", audience_profile=None):
     relevance_scores = compute_relevance_scores(get_matcher().encode(text))

@@ -7,6 +7,10 @@ services:
       - "27018:27017"
     volumes:
       - mongodb_data:/data/db
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand(\"ping\")' --quiet || exit 1"]
       interval: 5s
@@ -44,7 +48,11 @@ services:
       - NEWS_API_KEY=${NEWS_API_KEY}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - USE_TRANSFORMER_MODELS=true
+      - USE_TRANSFORMER_MODELS=false
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     volumes:
       - ai_models:/app/models_cache  # Persist ML models
     healthcheck:
@@ -71,6 +79,10 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - NEWS_API_KEY=${NEWS_API_KEY}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/news/ || exit 1"]
       interval: 10s
@@ -94,6 +106,10 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8081
       - BACKEND_INTERNAL_URL=http://spring-backend:8080
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on:
       - spring-backend
     networks:
