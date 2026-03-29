@@ -1,6 +1,6 @@
 # MyET — The Personalised Newsroom
-##Track 8: AI-Native News Experience - MyET—The Personalised Newsroom 
-##Team Name: SmartBytes345
+* Track 8: AI-Native News Experience - MyET—The Personalised Newsroom 
+* Team Name: SmartBytes345
 
 ## 🚨 Problem
 Traditional news platforms show the same content to all users, regardless of their goals, experience, or intent. This leads to information overload, irrelevant content, and 10x slower decision-making.
