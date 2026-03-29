@@ -92,8 +92,8 @@ Beyond time, MyET accelerates the most critical business functions.
     *   **Investors**: Decision bias reduced by filtering personalized noise from true alpha signals.
 
 ---
-⚙️ Setup & Installation
-🧩 Prerequisites
+###⚙️ Setup & Installation
+###🧩 Prerequisites
 Docker & Docker Compose
 Node.js (optional)
 Python 3.9+
