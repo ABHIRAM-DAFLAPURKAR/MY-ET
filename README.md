@@ -93,10 +93,10 @@ Beyond time, MyET accelerates the most critical business functions.
 
 ---
 ###⚙️ Setup & Installation
-###🧩 Prerequisites
-Docker & Docker Compose
-Node.js (optional)
-Python 3.9+
+* ###🧩 Prerequisites
+* Docker & Docker Compose
+* Node.js (optional)
+* Python 3.9+
 ---
 
 📥 1. Clone Repository
